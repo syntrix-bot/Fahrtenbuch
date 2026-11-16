@@ -28,11 +28,29 @@ Die Web-App im Ordner `docs/` funktioniert auf jedem iPhone über Safari, ohne M
 2. Bei *Source* den Eintrag **Deploy from a branch** wählen. Als Branch `claude/eager-cerf-o8pt9j` (oder später `main`) und als Ordner **`/docs`** auswählen, dann **Save**.
 3. Nach 1–2 Minuten zeigt GitHub oben die Adresse an, z. B. `https://<name>.github.io/Fahrtenbuch/`.
 
-GitHub Pages ist im kostenlosen Plan nur für **öffentliche** Repositories verfügbar. Eure Fahrtdaten liegen trotzdem nie auf GitHub, sondern nur auf dem iPhone.
+GitHub Pages ist im kostenlosen Plan nur für **öffentliche** Repositories verfügbar (*Settings → General → ganz unten „Danger Zone“ → Change repository visibility → Make public*). Eure Fahrtdaten liegen trotzdem nie auf GitHub, sondern auf dem iPhone bzw. bei Firebase.
 
 **Auf dem iPhone:** Die Adresse in Safari öffnen, auf **Teilen** tippen und dann **Zum Home-Bildschirm** wählen. Ab dann startet das Fahrtenbuch wie eine App und funktioniert auch offline.
 
 Wichtig: Die Home-Bildschirm-App hat einen eigenen Speicher, getrennt von Safari. Nutzt also immer das App-Symbol und macht ab und zu ein Backup (*Einstellungen → Backup speichern*).
+
+### Sync zwischen zwei Handys (Firebase)
+
+Damit ihr beide auf dem eigenen iPhone eintragen könnt, gleicht die App die Daten über **Firebase** (Google) ab. Das ist kostenlos und braucht keine Kreditkarte. Ohne diese Einrichtung läuft die App rein lokal.
+
+1. Auf [console.firebase.google.com](https://console.firebase.google.com) mit einem Google-Konto anmelden und **Projekt erstellen** wählen (Name z. B. `fahrtenbuch`). Google Analytics kann aus bleiben.
+2. Links unter **Build → Authentication** auf **Jetzt starten** klicken. Im Tab *Sign-in method* den Eintrag **Anonym** aktivieren und speichern.
+3. Unter **Build → Firestore Database** auf **Datenbank erstellen** klicken. Als Standort `europe-west3 (Frankfurt)` wählen, im **Produktionsmodus** starten.
+4. Im Firestore den Tab **Regeln** öffnen, den Inhalt von [`firestore.rules`](firestore.rules) einfügen und **Veröffentlichen**.
+5. In der Projektübersicht auf das Symbol **`</>`** (Web-App hinzufügen) klicken, einen Namen vergeben und registrieren. Den angezeigten `firebaseConfig`-Block in [`docs/firebase-config.js`](docs/firebase-config.js) eintragen. Die Werte sind nicht geheim und dürfen öffentlich im Repo stehen.
+
+Danach:
+- **Person 1** öffnet die App, gibt beide Namen ein und wählt **Neues Fahrtenbuch anlegen**. Die App zeigt einen 20-stelligen Code und bietet an, ihn zu verschicken.
+- **Person 2** installiert die App ebenfalls (Safari → Teilen → Zum Home-Bildschirm), wählt **Mit Code verbinden** und gibt den Code ein.
+
+Ab dann sehen beide denselben Stand. Wer gerade kein Netz hat, kann trotzdem eintragen; die Änderungen werden später übertragen. Der Punkt neben der Überschrift zeigt den Status: grün = synchronisiert, orange = offline, rot = Fehler.
+
+Wer schon lokal Daten erfasst hat, kann unter *Einstellungen → Gemeinsam nutzen → Sync aktivieren* nachträglich umstellen. Die vorhandenen Daten werden dabei hochgeladen.
 
 ## Native iOS-App (mit Mac) – `Fahrtenbuch.xcodeproj`
 

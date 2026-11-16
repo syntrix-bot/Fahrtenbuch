@@ -1,0 +1,16 @@
+rules_version = '2';
+
+// Regeln für die Firestore-Datenbank des Fahrtenbuchs.
+// In der Firebase-Konsole unter Firestore Database → Regeln einfügen und veröffentlichen.
+//
+// Jedes Fahrtenbuch liegt unter households/{code}. Wer den 20-stelligen Code kennt,
+// darf lesen und schreiben. Eine Liste aller Fahrtenbücher kann niemand abrufen.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /households/{code}/{col}/{id} {
+      allow read, write: if request.auth != null
+        && code.size() == 20
+        && col in ['people', 'trips', 'expenses', 'payments'];
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import { computeSplit, settle, parseAmountCents, parseOdometer } from './split.js';
+import * as sync from './sync.js';
 
 // ---------- Daten ----------
 
@@ -18,10 +19,12 @@ const category = (id) => CATEGORIES.find((c) => c[0] === id) || CATEGORIES[CATEG
 
 const emptyState = () => ({ version: 1, people: [], trips: [], expenses: [], payments: [] });
 
+const sortPeople = (people) => [...people].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
 function normalize(s) {
   return {
     version: 1,
-    people: Array.isArray(s.people) ? s.people : [],
+    people: Array.isArray(s.people) ? sortPeople(s.people.map((p, i) => ({ order: i, ...p }))) : [],
     trips: Array.isArray(s.trips) ? s.trips : [],
     expenses: Array.isArray(s.expenses) ? s.expenses : [],
     payments: Array.isArray(s.payments) ? s.payments : [],
@@ -38,13 +41,93 @@ function load() {
 
 let state = load();
 
-function save() {
+function persist() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (e) {
     alert('Speichern fehlgeschlagen: ' + e.message);
   }
+}
+
+// ---------- Änderungen (lokal + Sync) ----------
+
+const SYNC_KEY = 'fahrtenbuch.syncCode';
+let syncCode = null;
+try { syncCode = localStorage.getItem(SYNC_KEY); } catch {}
+if (!sync.syncAvailable) syncCode = null;
+let syncStatus = 'local'; // local | connecting | online | offline | error
+let syncError = '';
+let unsubscribe = null;
+
+function setSyncCode(code) {
+  syncCode = code;
+  try { code ? localStorage.setItem(SYNC_KEY, code) : localStorage.removeItem(SYNC_KEY); } catch {}
+}
+
+function onSyncError(err) {
+  console.error('Sync-Fehler', err);
+  syncStatus = 'error';
+  syncError = err?.code === 'permission-denied'
+    ? 'Zugriff verweigert – sind die Firestore-Regeln und die anonyme Anmeldung eingerichtet?'
+    : (err?.message || String(err));
   render();
+}
+
+function startSync() {
+  stopSync();
+  if (!syncCode) { syncStatus = 'local'; return; }
+  syncStatus = 'connecting';
+  unsubscribe = sync.subscribe(syncCode, (col, items, fromCache) => {
+    state[col] = col === 'people' ? sortPeople(items) : items;
+    syncStatus = fromCache ? 'offline' : 'online';
+    syncError = '';
+    persist();
+    render();
+  }, onSyncError);
+}
+
+function stopSync() {
+  unsubscribe?.();
+  unsubscribe = null;
+}
+
+function upsert(col, item) {
+  const list = state[col];
+  const index = list.findIndex((x) => x.id === item.id);
+  if (index >= 0) list[index] = item; else list.push(item);
+  if (col === 'people') state.people = sortPeople(state.people);
+  persist();
+  render();
+  if (syncCode) sync.put(syncCode, col, item).catch(onSyncError);
+}
+
+function removeItem(col, id) {
+  state[col] = state[col].filter((x) => x.id !== id);
+  persist();
+  render();
+  if (syncCode) sync.remove(syncCode, col, id).catch(onSyncError);
+}
+
+function replaceAll(newState) {
+  state = normalize(newState);
+  persist();
+  render();
+  if (syncCode) sync.replaceAll(syncCode, state).catch(onSyncError);
+}
+
+/** Neues gemeinsames Fahrtenbuch in der Cloud anlegen und die lokalen Daten hochladen. */
+async function enableSync() {
+  const code = syncCode || sync.generateCode();
+  try {
+    syncStatus = 'connecting';
+    render();
+    await sync.upload(code, state);
+    setSyncCode(code);
+    startSync();
+    openShareSheet();
+  } catch (err) {
+    onSyncError(err);
+  }
 }
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID()
@@ -122,7 +205,30 @@ addBtn.addEventListener('click', () => {
   else openAddChooser();
 });
 
+// Nicht neu zeichnen, während jemand in der Hauptansicht tippt (z. B. Namen ändern).
+let renderPending = false;
 function render() {
+  const active = document.activeElement;
+  if (active && active.tagName === 'INPUT' && view.contains(active)) { renderPending = true; return; }
+  renderNow();
+}
+view.addEventListener('focusout', () => {
+  if (renderPending) { renderPending = false; setTimeout(render, 0); }
+});
+
+const SYNC_LABELS = {
+  connecting: ['Verbinde …', 'gray'],
+  online: ['Synchronisiert', 'green'],
+  offline: ['Offline – wird später übertragen', 'orange'],
+  error: ['Sync-Fehler', 'red'],
+};
+
+function renderNow() {
+  const dot = document.getElementById('sync-dot');
+  const label = SYNC_LABELS[syncStatus];
+  dot.hidden = !label;
+  if (label) { dot.className = `sync-dot ${label[1]}`; dot.title = label[0]; }
+
   const ready = state.people.length >= 2;
   tabbar.hidden = !ready;
   addBtn.hidden = !ready || tab === 'settings';
@@ -160,8 +266,42 @@ function renderOnboarding() {
           <div class="field"><input class="left" name="b" placeholder="Zweite Person" autocomplete="off" required></div>
         </div>
       </div>
-      <button class="btn block" type="submit">Los geht's</button>
-    </form>`;
+      <button class="btn block" type="submit">${sync.syncAvailable && !syncCode ? 'Neues Fahrtenbuch anlegen' : "Los geht's"}</button>
+    </form>
+    ${sync.syncAvailable && !syncCode ? `
+      <div class="or">Dein Partner hat schon ein Fahrtenbuch angelegt?</div>
+      <button class="btn block secondary" data-action="join">Mit Code verbinden</button>` : ''}`;
+}
+
+function renderSyncSection() {
+  if (!sync.syncAvailable) {
+    return `<div class="section">
+      <div class="section-head">Gemeinsam nutzen</div>
+      <div class="tip">Der Sync zwischen zwei Handys ist noch nicht eingerichtet. Die Anleitung steht in der README auf GitHub.</div>
+    </div>`;
+  }
+  if (!syncCode) {
+    return `<div class="section">
+      <div class="section-head">Gemeinsam nutzen</div>
+      <div class="card">
+        <button class="row" data-action="enable-sync"><span class="emoji">☁️</span><span class="grow">Sync aktivieren</span></button>
+        <button class="row" data-action="join"><span class="emoji">🔗</span><span class="grow">Mit Code verbinden</span></button>
+      </div>
+      <div class="section-foot">Mit Sync tragt ihr beide auf eurem eigenen Handy ein und seht immer denselben Stand.</div>
+    </div>`;
+  }
+  const label = SYNC_LABELS[syncStatus] || ['–', 'gray'];
+  return `<div class="section">
+    <div class="section-head">Gemeinsam nutzen</div>
+    <div class="card">
+      <div class="row"><span class="grow">Status</span><span><span class="sync-dot ${label[1]}"></span> ${label[0]}</span></div>
+      ${syncStatus === 'error' && syncError ? `<div class="row hint err">${esc(syncError)}</div>` : ''}
+      <div class="code" id="sync-code">${sync.formatCode(syncCode)}</div>
+      <button class="row" data-action="share-code"><span class="emoji">📤</span><span class="grow">Code an Partner schicken</span></button>
+      <button class="row" data-action="leave-sync"><span class="emoji">⛓️‍💥</span><span class="grow">Verbindung trennen</span></button>
+    </div>
+    <div class="section-foot">Wer diesen Code kennt, kann euer Fahrtenbuch sehen und bearbeiten – teilt ihn nur miteinander.</div>
+  </div>`;
 }
 
 function renderOverview() {
@@ -286,6 +426,8 @@ function renderSettings() {
       <br><span class="muted">Wichtig: Die Daten der Home-Bildschirm-App sind getrennt von denen in Safari – nutzt also immer dieselbe.</span>
     </div></div>`}
 
+    ${renderSyncSection()}
+
     <div class="section">
       <div class="section-head">Personen</div>
       <div class="card">${state.people.map((p) => `
@@ -317,7 +459,9 @@ function renderSettings() {
         <button class="row" data-action="export-backup"><span class="emoji">💾</span><span class="grow">Backup speichern</span></button>
         <button class="row" data-action="import-backup"><span class="emoji">📥</span><span class="grow">Backup wiederherstellen</span></button>
       </div>
-      <div class="section-foot">Die Daten liegen nur auf diesem iPhone. Speichert ab und zu ein Backup, z. B. in der Dateien-App oder iCloud Drive.</div>
+      <div class="section-foot">${syncCode
+        ? 'Ein Backup schadet trotzdem nie, z. B. in der Dateien-App oder iCloud Drive.'
+        : 'Die Daten liegen nur auf diesem iPhone. Speichert ab und zu ein Backup, z. B. in der Dateien-App oder iCloud Drive.'}</div>
       <input type="file" id="import-file" accept="application/json,.json" hidden>
     </div>
 
@@ -361,6 +505,55 @@ function sheetHead(heading, formId) {
   </div>`;
 }
 
+function openShareSheet() {
+  openSheet(`
+    <div class="sheet-head"><span></span><h2>Fahrtenbuch teilen</h2><button class="link bold" data-action="close-sheet">Fertig</button></div>
+    <div class="section">
+      <div class="tip">
+        So kommt dein Partner dazu:
+        <ol style="margin:8px 0 0;padding-left:20px">
+          <li>Die App-Adresse in Safari öffnen und <b>Zum Home-Bildschirm</b> hinzufügen</li>
+          <li>Die App öffnen und <b>Mit Code verbinden</b> wählen</li>
+          <li>Diesen Code eingeben:</li>
+        </ol>
+      </div>
+    </div>
+    <div class="card"><div class="code">${sync.formatCode(syncCode)}</div></div>
+    <div class="section"><button class="btn block" data-action="share-code">Code verschicken</button></div>`);
+}
+
+function openJoinSheet() {
+  openSheet(`
+    <div class="sheet-head">
+      <button type="button" class="link" data-action="close-sheet">Abbrechen</button>
+      <h2>Mit Code verbinden</h2>
+      <button type="submit" class="link bold" form="join-form" id="save-btn">Verbinden</button>
+    </div>
+    <form id="join-form">
+      <div class="section">
+        <div class="section-head">Code von deinem Partner</div>
+        <div class="card"><div class="field">
+          <input class="code-input" name="code" placeholder="XXXXX-XXXXX-XXXXX-XXXXX" autocomplete="off" autocapitalize="characters" spellcheck="false">
+        </div></div>
+        <div id="j-hint" class="hint"></div>
+      </div>
+    </form>`, () => setTimeout(() => document.querySelector('#join-form input').focus(), 300));
+}
+
+async function shareCode() {
+  const url = location.origin + location.pathname;
+  const text = `Unser Fahrtenbuch-Code: ${sync.formatCode(syncCode)}\n\nApp: ${url}\n(In Safari öffnen → Teilen → Zum Home-Bildschirm, dann „Mit Code verbinden“.)`;
+  if (navigator.share) {
+    try { await navigator.share({ text }); return; } catch (err) { if (err.name === 'AbortError') return; }
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    alert('Code wurde in die Zwischenablage kopiert.');
+  } catch {
+    alert(text);
+  }
+}
+
 function openAddChooser() {
   openSheet(`
     <div class="sheet-head"><span></span><h2>Hinzufügen</h2><button class="link" data-action="close-sheet">Fertig</button></div>
@@ -370,11 +563,16 @@ function openAddChooser() {
     </div>`);
 }
 
+/** Zuletzt auf diesem Handy gewählte Person – meist ist das man selbst. */
+function defaultPerson(key) {
+  let id = null;
+  try { id = localStorage.getItem(key); } catch {}
+  return personById(id) ? id : state.people[0].id;
+}
+
 function openTripSheet(trip) {
   const last = lastOdometer(trip?.id);
-  let lastDriver = null;
-  try { lastDriver = localStorage.getItem('fahrtenbuch.lastDriver'); } catch {}
-  const driverId = trip?.driverId ?? (personById(lastDriver) ? lastDriver : state.people[0].id);
+  const driverId = trip?.driverId ?? defaultPerson('fahrtenbuch.lastDriver');
 
   openSheet(`
     ${sheetHead(trip ? 'Fahrt bearbeiten' : 'Neue Fahrt', 'trip-form')}
@@ -443,7 +641,7 @@ function openExpenseSheet(expense) {
       </div>
       <div class="section">
         <div class="section-head">Wer hat bezahlt?</div>
-        <div class="card">${personSegment('paidBy', expense?.paidById ?? state.people[0].id)}</div>
+        <div class="card">${personSegment('paidBy', expense?.paidById ?? defaultPerson('fahrtenbuch.lastPayer'))}</div>
       </div>
       <div class="section"><div class="card">
         <div class="field"><label for="e-cat">Kategorie</label>
@@ -474,6 +672,8 @@ function openExpenseSheet(expense) {
 
 // ---------- Formular-Speichern ----------
 
+const remember = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
+
 document.addEventListener('submit', (e) => {
   const form = e.target;
   e.preventDefault();
@@ -482,9 +682,22 @@ document.addEventListener('submit', (e) => {
     const a = form.a.value.trim();
     const b = form.b.value.trim();
     if (!a || !b) return;
-    state.people = [{ id: uid(), name: a }, { id: uid(), name: b }];
     tab = 'overview';
-    save();
+    const people = [{ id: uid(), name: a, order: 0 }, { id: uid(), name: b, order: 1 }];
+    if (syncCode) {
+      // Bereits verbunden (z. B. nach "Alle Daten löschen"): im selben Fahrtenbuch weitermachen.
+      people.forEach((p) => upsert('people', p));
+    } else {
+      state.people = people;
+      persist();
+      render();
+      if (sync.syncAvailable) enableSync();
+    }
+    return;
+  }
+
+  if (form.id === 'join-form') {
+    joinWithCode(form);
     return;
   }
 
@@ -494,14 +707,9 @@ document.addEventListener('submit', (e) => {
     const driverId = form.driver.value;
     if (start === null || end === null || end <= start || !driverId) return;
     const data = { date: form.date.value || today(), start, end, driverId, note: form.note.value.trim() };
-    const existing = state.trips.find((t) => t.id === form.dataset.id);
-    if (existing) Object.assign(existing, data);
-    else {
-      state.trips.push({ id: uid(), ...data });
-      try { localStorage.setItem('fahrtenbuch.lastDriver', driverId); } catch {}
-    }
+    remember('fahrtenbuch.lastDriver', driverId);
     closeSheet();
-    save();
+    upsert('trips', { id: form.dataset.id || uid(), ...data });
     return;
   }
 
@@ -510,13 +718,51 @@ document.addEventListener('submit', (e) => {
     const paidById = form.paidBy.value;
     if (amountCents === null || !paidById) return;
     const data = { date: form.date.value || today(), amountCents, paidById, category: form.category.value, note: form.note.value.trim() };
-    const existing = state.expenses.find((x) => x.id === form.dataset.id);
-    if (existing) Object.assign(existing, data);
-    else state.expenses.push({ id: uid(), ...data });
+    remember('fahrtenbuch.lastPayer', paidById);
     closeSheet();
-    save();
+    upsert('expenses', { id: form.dataset.id || uid(), ...data });
   }
 });
+
+async function joinWithCode(form) {
+  const hint = document.getElementById('j-hint');
+  const button = document.getElementById('save-btn');
+  const code = sync.normalizeCode(form.code.value);
+  hint.className = 'hint err';
+  if (!code) { hint.textContent = 'Der Code hat 20 Zeichen, z. B. ABCDE-FGHJK-LMNPQ-RSTUV.'; return; }
+
+  button.disabled = true;
+  hint.className = 'hint';
+  hint.textContent = 'Prüfe Code …';
+  try {
+    if (!(await sync.exists(code))) {
+      hint.className = 'hint err';
+      hint.textContent = 'Zu diesem Code wurde kein Fahrtenbuch gefunden.';
+      button.disabled = false;
+      return;
+    }
+  } catch (err) {
+    console.error(err);
+    hint.className = 'hint err';
+    hint.textContent = 'Keine Verbindung zum Server. Bist du online?';
+    button.disabled = false;
+    return;
+  }
+
+  const hasLocalData = state.trips.length || state.expenses.length;
+  if (hasLocalData && !confirm('Die Fahrten und Kosten auf diesem Handy werden durch das gemeinsame Fahrtenbuch ersetzt. Fortfahren?')) {
+    button.disabled = false;
+    hint.textContent = '';
+    return;
+  }
+  closeSheet();
+  state = emptyState();
+  persist();
+  setSyncCode(code);
+  tab = 'overview';
+  startSync();
+  render();
+}
 
 // ---------- Aktionen ----------
 
@@ -534,18 +780,12 @@ document.addEventListener('click', (e) => {
 
     case 'delete-trip': {
       const formId = document.getElementById('trip-form').dataset.id;
-      if (confirm('Diese Fahrt löschen?')) {
-        state.trips = state.trips.filter((t) => t.id !== formId);
-        closeSheet(); save();
-      }
+      if (confirm('Diese Fahrt löschen?')) { closeSheet(); removeItem('trips', formId); }
       break;
     }
     case 'delete-expense': {
       const formId = document.getElementById('expense-form').dataset.id;
-      if (confirm('Diese Kosten löschen?')) {
-        state.expenses = state.expenses.filter((x) => x.id !== formId);
-        closeSheet(); save();
-      }
+      if (confirm('Diese Kosten löschen?')) { closeSheet(); removeItem('expenses', formId); }
       break;
     }
 
@@ -554,48 +794,59 @@ document.addEventListener('click', (e) => {
       const to = personById(el.dataset.to);
       const amountCents = Number(el.dataset.amount);
       if (from && to && confirm(`${from.name} hat ${to.name} ${euro(amountCents)} gezahlt?`)) {
-        state.payments.push({ id: uid(), date: today(), amountCents, fromId: from.id, toId: to.id });
-        save();
+        upsert('payments', { id: uid(), date: today(), amountCents, fromId: from.id, toId: to.id });
       }
       break;
     }
     case 'delete-payment':
-      if (confirm('Diese Ausgleichszahlung löschen?')) {
-        state.payments = state.payments.filter((p) => p.id !== id);
-        save();
+      if (confirm('Diese Ausgleichszahlung löschen?')) removeItem('payments', id);
+      break;
+
+    case 'join': openJoinSheet(); break;
+    case 'enable-sync': enableSync(); break;
+    case 'share-code': shareCode(); break;
+    case 'leave-sync':
+      if (confirm('Verbindung trennen? Die aktuellen Daten bleiben als Kopie auf diesem Handy, werden aber nicht mehr abgeglichen.')) {
+        stopSync();
+        setSyncCode(null);
+        syncStatus = 'local';
+        render();
       }
       break;
 
     case 'export-csv': shareFile('Fahrtenbuch.csv', '﻿' + buildCsv(), 'text/csv'); break;
-    case 'export-backup':
-      shareFile(`Fahrtenbuch-Backup-${today()}.json`, JSON.stringify(state, null, 2), 'application/json');
+    case 'export-backup': {
+      const { people, trips, expenses, payments } = state;
+      shareFile(`Fahrtenbuch-Backup-${today()}.json`, JSON.stringify({ version: 1, people, trips, expenses, payments }, null, 2), 'application/json');
       break;
+    }
     case 'import-backup': document.getElementById('import-file').click(); break;
 
-    case 'reset':
-      if (confirm('Wirklich ALLE Fahrten, Kosten und Personen löschen?') && confirm('Sicher? Das kann nicht rückgängig gemacht werden.')) {
-        state = emptyState();
-        save();
-      }
+    case 'reset': {
+      const warning = syncCode
+        ? 'Wirklich ALLE Fahrten, Kosten und Personen löschen? Das betrifft auch das Handy deines Partners.'
+        : 'Wirklich ALLE Fahrten, Kosten und Personen löschen?';
+      if (confirm(warning) && confirm('Sicher? Das kann nicht rückgängig gemacht werden.')) replaceAll(emptyState());
       break;
+    }
   }
 });
 
-// Namen ändern
+// Namen ändern, Backup laden
 document.addEventListener('change', (e) => {
   const el = e.target;
   if (el.dataset.action === 'rename') {
     const p = personById(el.dataset.id);
     const name = el.value.trim();
-    if (p && name) { p.name = name; save(); } else render();
+    if (p && name && name !== p.name) upsert('people', { ...p, name });
+    else render();
   }
   if (el.id === 'import-file' && el.files[0]) {
     el.files[0].text().then((text) => {
       const data = JSON.parse(text);
       if (!Array.isArray(data.people) || !Array.isArray(data.trips)) throw new Error('Keine gültige Backup-Datei');
-      if (confirm(`Backup mit ${data.trips.length} Fahrten und ${(data.expenses || []).length} Kosten laden? Die aktuellen Daten werden ersetzt.`)) {
-        state = normalize(data);
-        save();
+      if (confirm(`Backup mit ${data.trips.length} Fahrten und ${(data.expenses || []).length} Kosten laden? Die aktuellen Daten werden ersetzt${syncCode ? ' – auch auf dem Handy deines Partners' : ''}.`)) {
+        replaceAll(data);
       }
     }).catch((err) => alert('Backup konnte nicht geladen werden: ' + err.message));
     el.value = '';
@@ -638,6 +889,7 @@ async function shareFile(filename, content, type) {
 
 // ---------- Start ----------
 
+startSync();
 render();
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {

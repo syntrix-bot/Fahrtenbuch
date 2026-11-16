@@ -1,8 +1,9 @@
 // Service Worker: macht die App offline nutzbar.
 // Strategie: Netzwerk zuerst (damit Updates sofort ankommen), sonst aus dem Cache.
-const CACHE = 'fahrtenbuch-v1';
+const CACHE = 'fahrtenbuch-v2';
 const FILES = [
-  './', 'index.html', 'style.css', 'app.js', 'split.js', 'manifest.webmanifest',
+  './', 'index.html', 'style.css', 'app.js', 'split.js', 'sync.js', 'firebase-config.js', 'manifest.webmanifest',
+  'vendor/firebase/firebase-app.js', 'vendor/firebase/firebase-auth.js', 'vendor/firebase/firebase-firestore.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 
