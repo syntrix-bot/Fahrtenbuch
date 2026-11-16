@@ -1,6 +1,6 @@
 # Fahrtenbuch 🚗
 
-Eine iOS-App für zwei Personen, die sich ein Auto teilen. Ihr tragt eure Fahrten (per Kilometerstand) und alle Autokosten ein. Die App rechnet aus, wer wie viel zahlen muss, und zwar fair nach gefahrenen Kilometern.
+Eine App für zwei Personen, die sich ein Auto teilen. Ihr tragt eure Fahrten (per Kilometerstand) und alle Autokosten ein. Die App rechnet aus, wer wie viel zahlen muss, und zwar fair nach gefahrenen Kilometern.
 
 ## Funktionen
 
@@ -19,7 +19,24 @@ Saldo                = selbst bezahlt − Anteil + geleistete Ausgleichszahlunge
 
 Ein positiver Saldo heißt, man bekommt Geld zurück. Ein negativer Saldo heißt, man muss zahlen. Solange noch niemand gefahren ist, werden die Kosten 50/50 geteilt.
 
-## Starten
+## Web-App (ohne Mac) – `docs/`
+
+Die Web-App im Ordner `docs/` funktioniert auf jedem iPhone über Safari, ohne Mac, ohne Developer-Account und ohne Ablaufdatum.
+
+**Einmalig einrichten (GitHub Pages):**
+1. Auf GitHub im Repository auf **Settings → Pages** gehen.
+2. Bei *Source* den Eintrag **Deploy from a branch** wählen. Als Branch `claude/eager-cerf-o8pt9j` (oder später `main`) und als Ordner **`/docs`** auswählen, dann **Save**.
+3. Nach 1–2 Minuten zeigt GitHub oben die Adresse an, z. B. `https://<name>.github.io/Fahrtenbuch/`.
+
+GitHub Pages ist im kostenlosen Plan nur für **öffentliche** Repositories verfügbar. Eure Fahrtdaten liegen trotzdem nie auf GitHub, sondern nur auf dem iPhone.
+
+**Auf dem iPhone:** Die Adresse in Safari öffnen, auf **Teilen** tippen und dann **Zum Home-Bildschirm** wählen. Ab dann startet das Fahrtenbuch wie eine App und funktioniert auch offline.
+
+Wichtig: Die Home-Bildschirm-App hat einen eigenen Speicher, getrennt von Safari. Nutzt also immer das App-Symbol und macht ab und zu ein Backup (*Einstellungen → Backup speichern*).
+
+## Native iOS-App (mit Mac) – `Fahrtenbuch.xcodeproj`
+
+### Starten
 
 Voraussetzung: ein Mac mit **Xcode 16 oder neuer** und ein iPhone mit **iOS 17 oder neuer**.
 
