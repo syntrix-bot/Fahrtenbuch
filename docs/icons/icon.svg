@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4fb0ff"/>
+      <stop offset="1" stop-color="#0a5bd8"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e3ecf7"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7cc4ff"/>
+      <stop offset="1" stop-color="#2f86e8"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <g transform="translate(512 512) scale(1.12) translate(-515 -568)">
+    <ellipse cx="515" cy="800" rx="390" ry="28" fill="#06306e" opacity="0.35"/>
+    <path fill="url(#body)" d="
+      M 120 690 L 120 590 Q 120 540 170 530 L 250 515
+      L 330 375 Q 355 335 405 335 L 600 335 Q 645 335 675 365
+      L 790 480 L 860 495 Q 910 507 910 560 L 910 690 Q 910 705 895 705
+      L 846 705 A 112 112 0 0 0 622 705
+      L 402 705 A 112 112 0 0 0 178 705
+      L 135 705 Q 120 705 120 690 Z"/>
+    <path fill="url(#glass)" d="M 292 500 L 355 388 Q 370 365 400 365 L 498 365 L 498 500 Z"/>
+    <path fill="url(#glass)" d="M 524 365 L 595 365 Q 625 365 645 385 L 755 500 L 524 500 Z"/>
+    <rect x="507" y="365" width="10" height="290" fill="#c9d6e6"/>
+    <rect x="420" y="535" width="56" height="14" rx="7" fill="#9fb1c6"/>
+    <rect x="640" y="535" width="56" height="14" rx="7" fill="#9fb1c6"/>
+    <path d="M 860 525 Q 900 532 904 560 L 862 560 Q 850 545 860 525 Z" fill="#ffd34d"/>
+    <rect x="120" y="550" width="22" height="52" rx="6" fill="#ff5a4f"/>
+    <g>
+      <circle cx="290" cy="705" r="96" fill="#1c2633"/>
+      <circle cx="290" cy="705" r="48" fill="#d5dde8"/>
+      <circle cx="290" cy="705" r="16" fill="#8796a8"/>
+      <circle cx="734" cy="705" r="96" fill="#1c2633"/>
+      <circle cx="734" cy="705" r="48" fill="#d5dde8"/>
+      <circle cx="734" cy="705" r="16" fill="#8796a8"/>
+    </g>
+  </g>
+</svg>
