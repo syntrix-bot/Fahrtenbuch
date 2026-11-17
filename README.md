@@ -4,7 +4,7 @@ Eine App für zwei Personen, die sich ein Auto teilen. Ihr tragt eure Fahrten (p
 
 ## Funktionen
 
-- **Fahrten:** Fahrer, Datum, Start- und End-Kilometerstand und eine Notiz. Der Start wird automatisch mit dem letzten Kilometerstand vorausgefüllt. Wenn zwischen zwei Fahrten Kilometer fehlen, weist die App darauf hin.
+- **Fahrten:** Fahrer (oder **Gemeinsam** – dann zählen die km für jeden zur Hälfte), Datum, Start- und End-Kilometerstand und eine Notiz. Der Start wird automatisch mit dem letzten Kilometerstand vorausgefüllt. Wenn zwischen zwei Fahrten Kilometer fehlen, weist die App darauf hin.
 - **Kosten:** Betrag, Kategorie (Tanken, Versicherung, Steuer, Werkstatt …) und wer bezahlt hat.
 - **Übersicht:** km pro Person, Kosten pro km, Kostenanteil, bereits bezahlte Beträge und der Saldo.
 - **Ausgleich:** Die App zeigt z. B. „Anna zahlt Ben 23,40 €“. Mit *Bezahlt* wird die Zahlung verbucht und der Saldo steht wieder auf 0.

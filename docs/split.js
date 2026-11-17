@@ -8,11 +8,17 @@ export function computeSplit(state) {
   const { people, trips, expenses, payments } = state;
   if (people.length === 0) return [];
 
-  const km = {}, paid = {}, sent = {}, received = {};
-  for (const p of people) { km[p.id] = 0; paid[p.id] = 0; sent[p.id] = 0; received[p.id] = 0; }
+  const km = {}, sharedKm = {}, paid = {}, sent = {}, received = {};
+  for (const p of people) { km[p.id] = 0; sharedKm[p.id] = 0; paid[p.id] = 0; sent[p.id] = 0; received[p.id] = 0; }
 
   for (const t of trips) {
-    if (t.driverId in km) km[t.driverId] += Math.max(0, t.end - t.start);
+    const dist = Math.max(0, t.end - t.start);
+    if (t.shared) {
+      // Gemeinsame Fahrt: Kilometer werden gleichmäßig auf alle verteilt.
+      for (const p of people) { km[p.id] += dist / people.length; sharedKm[p.id] += dist / people.length; }
+    } else if (t.driverId in km) {
+      km[t.driverId] += dist;
+    }
   }
   for (const e of expenses) {
     if (e.paidById in paid) paid[e.paidById] += e.amountCents;
@@ -34,6 +40,7 @@ export function computeSplit(state) {
     return {
       person: p,
       km: km[p.id],
+      sharedKm: sharedKm[p.id],
       kmShare: share,
       costShare,
       paid: paid[p.id],

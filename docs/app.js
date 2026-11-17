@@ -140,7 +140,7 @@ if (navigator.storage && navigator.storage.persist) navigator.storage.persist().
 
 const euroFmt = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
 const euro = (cents) => euroFmt.format(cents / 100);
-const km = (n) => `${Math.round(n).toLocaleString('de-DE')} km`;
+const km = (n) => `${n.toLocaleString('de-DE', { maximumFractionDigits: 1 })} km`;
 const pct = (x) => `${Math.round(x * 100)} %`;
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -160,6 +160,11 @@ function fmtMonth(key) {
 const personById = (id) => state.people.find((p) => p.id === id);
 const colorOf = (p) => (p ? COLORS[state.people.indexOf(p) % COLORS.length] : '#8e8e93');
 const badge = (p) => `<span class="dot" style="background:${colorOf(p)}"></span><span class="name">${esc(p ? p.name : 'Unbekannt')}</span>`;
+const SHARED = 'shared';
+const tripBadge = (t) => (t.shared
+  ? `${state.people.map((p) => `<span class="dot" style="background:${colorOf(p)};margin-right:2px"></span>`).join('')}<span class="name" style="margin-left:4px">Gemeinsam</span>`
+  : badge(personById(t.driverId)));
+const tripDriverName = (t) => (t.shared ? 'Gemeinsam' : personById(t.driverId)?.name);
 const distance = (t) => Math.max(0, t.end - t.start);
 
 function groupByMonth(items) {
@@ -318,6 +323,7 @@ function renderOverview() {
         <span class="num">${km(l.km)} <span class="muted">· ${pct(l.kmShare)}</span></span>
       </div>
       <div class="bar"><div style="width:${(l.kmShare * 100).toFixed(1)}%;background:${colorOf(l.person)}"></div></div>
+      ${l.sharedKm > 0 ? `<div class="sub" style="margin-top:4px">davon ${km(l.sharedKm)} aus gemeinsamen Fahrten</div>` : ''}
     </div></div>`).join('');
 
   const costRows = lines.map((l) => {
@@ -356,6 +362,7 @@ function renderOverview() {
     <div class="section">
       <div class="section-head">Wer ist wie viel gefahren?</div>
       <div class="card">${kmRows}</div>
+      ${state.trips.some((t) => t.shared) ? '<div class="section-foot">Gemeinsame Fahrten zählen für jeden zur Hälfte.</div>' : ''}
     </div>
 
     <div class="section">
@@ -382,7 +389,7 @@ function renderTrips() {
       <div class="card">${trips.map((t) => `
         <button class="row" data-action="edit-trip" data-id="${t.id}">
           <div class="grow">
-            <div>${badge(personById(t.driverId))}</div>
+            <div>${tripBadge(t)}</div>
             <div class="sub">${fmtDate(t.date)} · ${t.start.toLocaleString('de-DE')} → ${t.end.toLocaleString('de-DE')}${t.note ? ' · ' + esc(t.note) : ''}</div>
           </div>
           <div class="value">${km(distance(t))}</div>
@@ -491,9 +498,11 @@ function closeSheet() {
 }
 backdrop.addEventListener('click', closeSheet);
 
-function personSegment(name, selectedId) {
-  return `<div class="seg">${state.people.map((p) => `
-    <label><input type="radio" name="${name}" value="${p.id}" ${p.id === selectedId ? 'checked' : ''}><span>${esc(p.name)}</span></label>`).join('')}
+function personSegment(name, selectedId, withShared = false) {
+  const options = state.people.map((p) => [p.id, p.name]);
+  if (withShared) options.push([SHARED, 'Gemeinsam']);
+  return `<div class="seg">${options.map(([value, label]) => `
+    <label><input type="radio" name="${name}" value="${value}" ${value === selectedId ? 'checked' : ''}><span>${esc(label)}</span></label>`).join('')}
   </div>`;
 }
 
@@ -572,7 +581,7 @@ function defaultPerson(key) {
 
 function openTripSheet(trip) {
   const last = lastOdometer(trip?.id);
-  const driverId = trip?.driverId ?? defaultPerson('fahrtenbuch.lastDriver');
+  const driverId = trip ? (trip.shared ? SHARED : trip.driverId) : defaultPerson('fahrtenbuch.lastDriver');
 
   openSheet(`
     ${sheetHead(trip ? 'Fahrt bearbeiten' : 'Neue Fahrt', 'trip-form')}
@@ -580,7 +589,7 @@ function openTripSheet(trip) {
       <div class="section">
         <div class="section-head">Wer ist gefahren?</div>
         <div class="card">
-          ${personSegment('driver', driverId)}
+          ${personSegment('driver', driverId, true)}
           <div class="field"><label for="t-date">Datum</label><input type="date" id="t-date" name="date" value="${trip?.date ?? today()}" required></div>
         </div>
       </div>
@@ -706,8 +715,9 @@ document.addEventListener('submit', (e) => {
     const end = parseOdometer(form.end.value);
     const driverId = form.driver.value;
     if (start === null || end === null || end <= start || !driverId) return;
-    const data = { date: form.date.value || today(), start, end, driverId, note: form.note.value.trim() };
-    remember('fahrtenbuch.lastDriver', driverId);
+    const shared = driverId === SHARED;
+    const data = { date: form.date.value || today(), start, end, driverId: shared ? null : driverId, shared, note: form.note.value.trim() };
+    if (!shared) remember('fahrtenbuch.lastDriver', driverId);
     closeSheet();
     upsert('trips', { id: form.dataset.id || uid(), ...data });
     return;
@@ -860,7 +870,7 @@ function buildCsv() {
   const money = (c) => (c / 100).toFixed(2).replace('.', ',');
   const rows = ['Typ;Datum;Person;Start-km;End-km;km;Betrag;Kategorie;Notiz'];
   for (const t of [...state.trips].sort((a, b) => a.date.localeCompare(b.date) || a.start - b.start)) {
-    rows.push(['Fahrt', t.date, q(personById(t.driverId)?.name), t.start, t.end, distance(t), '', '', q(t.note)].join(';'));
+    rows.push(['Fahrt', t.date, q(tripDriverName(t)), t.start, t.end, distance(t), '', '', q(t.note)].join(';'));
   }
   for (const x of [...state.expenses].sort((a, b) => a.date.localeCompare(b.date))) {
     rows.push(['Kosten', x.date, q(personById(x.paidById)?.name), '', '', '', money(x.amountCents), q(category(x.category)[2]), q(x.note)].join(';'));
